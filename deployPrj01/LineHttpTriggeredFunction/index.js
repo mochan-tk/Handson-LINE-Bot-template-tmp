@@ -1,36 +1,7 @@
-//https://github.com/line/line-bot-sdk-nodejs/tree/next/examples/echo-bot
-//https://himanago.hatenablog.com/entry/2020/04/23/205202
-'use strict';
-
 const line = require('@line/bot-sdk');
-const createHandler = require("azure-function-express").createHandler;
-const express = require('express');
-const { v4: uuidv4 } = require('uuid');
-const { BlobServiceClient } = require("@azure/storage-blob");
-const CosmosClient = require("@azure/cosmos").CosmosClient;
-const { getStreamData } = require('./helpers/stream.js'); 
+const express = require("express")
+const PORT = process.env.PORT || 3000
 
-// Azure Storage
-const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING);
-const containerClient = blobServiceClient.getContainerClient('files');
-
-// Azure Cosmos DB
-//https://docs.microsoft.com/en-us/azure/cosmos-db/sql/sql-api-nodejs-get-started
-//https://docs.microsoft.com/en-us/azure/cosmos-db/sql/sql-api-nodejs-application
-const cosmosDBConfig = {
-  endpoint: process.env.COSMOSDB_ACCOUNT,
-  key: process.env.COSMOSDB_KEY,
-  databaseId: process.env.COSMOSDB_DATABASENAME,
-  containerId: process.env.COSMOSDB_CONTAINERNAME
-};
-
-const { endpoint, key, databaseId, containerId } = cosmosDBConfig;
-
-const cosmosDBClient = new CosmosClient({ endpoint, key });
-const database = cosmosDBClient.database(databaseId);
-const cosmosDBContainer = database.container(containerId);
-
-// create LINE SDK config from env variables
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
@@ -45,17 +16,17 @@ const app = express();
 
 // register a webhook handler with middleware
 // about the middleware, please refer to doc
-app.post('/api/linehttptriggeredfunction', line.middleware(config), (req, res) => {
+app.post('/webhook', line.middleware(config), async (req, res) => {
   Promise
-    .all(req.body.events.map(e => handleEvent(e, req.context)))
+    .all(req.body.events.map(await handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      req.context.log.error(err);
+      console.error(err);
       res.status(500).end();
     });
 });
 
-// event handler
+//app.post("/webhook", function(req, res) {
 async function handleEvent(event, context) {
   const userId = event.source.userId;
   if (event.type !== 'message' && event.type !== 'postback') {
@@ -118,27 +89,19 @@ async function handleEvent(event, context) {
 
   } else if (event.message.type === 'image') {
     //https://developers.line.biz/ja/reference/messaging-api/#image-message
-    const blobName = uuidv4() + '.jpg'
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     const stream = await client.getMessageContent(event.message.id);
-    const data = await getStreamData(stream);
-    blockBlobClient.uploadData(data);
     return client.replyMessage(event.replyToken,{
       type: 'image',
-      originalContentUrl: `https://${blobServiceClient.accountName}.blob.core.windows.net/files/${blobName}`,
-      previewImageUrl: `https://${blobServiceClient.accountName}.blob.core.windows.net/files/${blobName}`
+      originalContentUrl: "",
+      previewImageUrl: ""
     });
   } else if (event.message.type === 'audio') {
     //https://developers.line.biz/ja/reference/messaging-api/#audio-message
     //durationはこれでとれそう？ > https://www.npmjs.com/package/mp3-duration
-    const blobName = uuidv4() + '.mp3'
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     const stream = await client.getMessageContent(event.message.id);
-    const data = await getStreamData(stream);
-    const res = blockBlobClient.uploadData(data);
     return client.replyMessage(event.replyToken,{
       type: 'audio',
-      originalContentUrl: `https://${blobServiceClient.accountName}.blob.core.windows.net/files/${blobName}`,
+      originalContentUrl: "",
       duration: 60000
     });
   } else if (event.message.type === 'location') {
@@ -151,55 +114,14 @@ async function handleEvent(event, context) {
       longitude: event.message.longitude
     });
   }
-
-  // // Insert
-  // const newItem = {
-  //   id: userId,
-  //   category: "fun",
-  //   name: "Cosmos DB",
-  //   description: "Complete Cosmos DB Node.js Quickstart ⚡",
-  //   isComplete: false
-  // };
-  // const { resource: createdItem } = await cosmosDBContainer.items.create(newItem);
-
-  // // Query
-  // const querySpec = {
-  //   query: `SELECT * from c WHERE c.id="${userId}"`
-  // };
-  // const { resources: items } = await cosmosDBContainer.items
-  // .query(querySpec)
-  // .fetchAll();
-  
-  // let description;
-  // items.forEach(item => {
-  //   description = item.description;
-  // });
-
-  // // Update
-  // const changeItem = {
-  //   id: userId,
-  //   category: "fun",
-  //   name: "Cosmos DB",
-  //   description: "Complete Cosmos DB Node.js Quickstart ⚡",
-  //   isComplete: true
-  // };
-
-  // const { resource: updatedItem } = await cosmosDBContainer
-  // .item(userId)
-  // .replace(changeItem);
-  
-  // const echo = { type: 'text', text: description };
-
-  // create a echoing text message
   const echo = { type: 'text', text: event.message.text };
-
-  // use reply API
   return client.replyMessage(event.replyToken, echo);
 }
 
-module.exports = createHandler(app);
+app.listen(PORT, () => {
+  console.log(`Example app listening at http://localhost:${PORT}`)
+})
 
-//https://developers.line.biz/flex-simulator/
 const flexMsg = {
   "type": "carousel",
   "contents": [
