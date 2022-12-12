@@ -1,6 +1,12 @@
 const line = require('@line/bot-sdk');
 const express = require("express")
+const fs = require('fs');
+const path = require('path');
+const cp = require('child_process');
+require('dotenv').config();
 const PORT = process.env.PORT || 3000
+// base URL for webhook server
+let baseURL = process.env.BASE_URL;
 
 const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
@@ -13,6 +19,9 @@ const client = new line.Client(config);
 // create Express app
 // about Express itself: https://expressjs.com/
 const app = express();
+
+// serve static and downloaded files
+app.use('/downloaded', express.static('downloaded'));
 
 // register a webhook handler with middleware
 // about the middleware, please refer to doc
@@ -27,7 +36,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 });
 
 //app.post("/webhook", function(req, res) {
-async function handleEvent(event, context) {
+async function handleEvent(event) {
   const userId = event.source.userId;
   if (event.type !== 'message' && event.type !== 'postback') {
     // ignore non-text-message event
@@ -89,21 +98,10 @@ async function handleEvent(event, context) {
 
   } else if (event.message.type === 'image') {
     //https://developers.line.biz/ja/reference/messaging-api/#image-message
-    const stream = await client.getMessageContent(event.message.id);
-    return client.replyMessage(event.replyToken,{
-      type: 'image',
-      originalContentUrl: "",
-      previewImageUrl: ""
-    });
+    await handleImage(event.message, event.replyToken);
   } else if (event.message.type === 'audio') {
     //https://developers.line.biz/ja/reference/messaging-api/#audio-message
-    //durationはこれでとれそう？ > https://www.npmjs.com/package/mp3-duration
-    const stream = await client.getMessageContent(event.message.id);
-    return client.replyMessage(event.replyToken,{
-      type: 'audio',
-      originalContentUrl: "",
-      duration: 60000
-    });
+    await handleAudio(event.message, event.replyToken);
   } else if (event.message.type === 'location') {
     //https://developers.line.biz/ja/reference/messaging-api/#location-message
     return client.replyMessage(event.replyToken,{
@@ -121,6 +119,78 @@ async function handleEvent(event, context) {
 app.listen(PORT, () => {
   console.log(`Example app listening at http://localhost:${PORT}`)
 })
+
+async function handleImage(message, replyToken) {
+  let getContent;
+  if (message.contentProvider.type === "line") {
+    const downloadPath = path.join(__dirname, 'downloaded', `${message.id}.jpg`);
+    const previewPath = path.join(__dirname, 'downloaded', `${message.id}-preview.jpg`);
+
+    getContent = downloadContent(message.id, downloadPath)
+      .then((downloadPath) => {
+        // ImageMagick is needed here to run 'convert'
+        // Please consider about security and performance by yourself
+        //cp.execSync(`convert -resize 240x jpeg:${downloadPath} jpeg:${previewPath}`);
+
+        return {
+          originalContentUrl: baseURL + '/downloaded/' + path.basename(downloadPath),
+          previewImageUrl: baseURL + '/downloaded/' + path.basename(downloadPath),
+        };
+      });
+  } else if (message.contentProvider.type === "external") {
+    getContent = Promise.resolve(message.contentProvider);
+  }
+
+  return getContent
+    .then(({ originalContentUrl, previewImageUrl }) => {
+      return client.replyMessage(
+        replyToken,
+        {
+          type: 'image',
+          originalContentUrl,
+          previewImageUrl,
+        }
+      );
+    });
+}
+
+async function handleAudio(message, replyToken) {
+  let getContent;
+  if (message.contentProvider.type === "line") {
+    const downloadPath = path.join(__dirname, 'downloaded', `${message.id}.m4a`);
+
+    getContent = downloadContent(message.id, downloadPath)
+      .then((downloadPath) => {
+        return {
+            originalContentUrl: baseURL + '/downloaded/' + path.basename(downloadPath),
+        };
+      });
+  } else {
+    getContent = Promise.resolve(message.contentProvider);
+  }
+
+  return getContent
+    .then(({ originalContentUrl }) => {
+      return client.replyMessage(
+        replyToken,
+        {
+          type: 'audio',
+          originalContentUrl,
+          duration: message.duration,
+        }
+      );
+    });
+}
+
+function downloadContent(messageId, downloadPath) {
+  return client.getMessageContent(messageId)
+    .then((stream) => new Promise((resolve, reject) => {
+      const writable = fs.createWriteStream(downloadPath);
+      stream.pipe(writable);
+      stream.on('end', () => resolve(downloadPath));
+      stream.on('error', reject);
+    }));
+}
 
 const flexMsg = {
   "type": "carousel",
