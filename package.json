@@ -1,0 +1,18 @@
+{
+  "name": "",
+  "version": "",
+  "description": "",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "author": "",
+  "dependencies": {
+    "@line/bot-sdk": "^7.4.0",
+    "child_process": "^1.0.2",
+    "dotenv": "^16.0.3",
+    "express": "^4.17.1",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  }
+}
